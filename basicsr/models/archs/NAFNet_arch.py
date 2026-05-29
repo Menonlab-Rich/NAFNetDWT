@@ -16,8 +16,42 @@ Simple Baselines for Image Restoration
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from pytorch_wavelets import DWTForward, DWTInverse
+from turtle import forward
+
 from basicsr.models.archs.arch_util import LayerNorm2d
 from basicsr.models.archs.local_arch import Local_Base
+
+
+class DWTDownSample(nn.Module):
+    def __init__(self, in_channels: int) -> None:
+        super().__init__(self, in_channels)
+        self.dwt = DWTForward(J=1, wave='haar')
+        self.project = nn.Conv2d(in_channels=in_channels * 4, out_channels=in_channels * 2, kernel_size=1, stride=1, bias=False)
+    def forward(self, x):
+        # Yl = low frequency transform LL
+        # Yh = other bands (LH, HL, HH)
+        Yl, Yh = self.dwt(x);
+        b, c, bands, h, w = Yh[0].shape
+        hf = Yh[0].view(b, c * bands, h, w) # reshape the bands into the c dimension
+        x_concat = torch.cat([Yl, hf,], dim=1)
+        # project the result back into the C/2 result expected in the OG architecture
+        return self.project(x_concat)
+
+class InvDWTUpSample(nn.Module):
+    def __init__(self, in_channels: int) -> None:
+        super().__init__(self, in_channels, )
+        self.idwt = DWTInverse(wave='haar')
+        # project the tensor back into C * 4 that it was after the initial DWT transform before the 1/2 projection
+        self.project = nn.Conv2d(in_channels, in_channels * 2, kernel_size=1, stride=1, bias=False)
+
+    def forward(self, x):
+        y = self.project(x)
+        b, c, h, w = y.shape
+        out_c = c // 4
+        Yl = y[:, :out_c, :, :] # reshape into the expected number of channels
+        Yh = [y[:, out_c:, :, :].view(b, out_c, 3, h, w)]
+        return self.idwt((Yl, Yh))
 
 class SimpleGate(nn.Module):
     def forward(self, x):
@@ -104,7 +138,7 @@ class NAFNet(nn.Module):
                 )
             )
             self.downs.append(
-                nn.Conv2d(chan, 2*chan, 2, 2)
+                DWTDownSample(in_channels=chan)
             )
             chan = chan * 2
 
@@ -116,8 +150,7 @@ class NAFNet(nn.Module):
         for num in dec_blk_nums:
             self.ups.append(
                 nn.Sequential(
-                    nn.Conv2d(chan, chan * 2, 1, bias=False),
-                    nn.PixelShuffle(2)
+                    InvDWTUpSample(in_channels=chan // 2)
                 )
             )
             chan = chan // 2
