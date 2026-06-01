@@ -25,7 +25,7 @@ from basicsr.models.archs.local_arch import Local_Base
 
 class DWTDownSample(nn.Module):
     def __init__(self, in_channels: int) -> None:
-        super().__init__(self, in_channels)
+        super().__init__()
         self.dwt = DWTForward(J=1, wave='haar')
         self.project = nn.Conv2d(in_channels=in_channels * 4, out_channels=in_channels * 2, kernel_size=1, stride=1, bias=False)
     def forward(self, x):
@@ -40,7 +40,7 @@ class DWTDownSample(nn.Module):
 
 class InvDWTUpSample(nn.Module):
     def __init__(self, in_channels: int) -> None:
-        super().__init__(self, in_channels, )
+        super().__init__()
         self.idwt = DWTInverse(wave='haar')
         # project the tensor back into C * 4 that it was after the initial DWT transform before the 1/2 projection
         self.project = nn.Conv2d(in_channels, in_channels * 2, kernel_size=1, stride=1, bias=False)
@@ -150,7 +150,7 @@ class NAFNet(nn.Module):
         for num in dec_blk_nums:
             self.ups.append(
                 nn.Sequential(
-                    InvDWTUpSample(in_channels=chan // 2)
+                    InvDWTUpSample(in_channels=chan)
                 )
             )
             chan = chan // 2
